@@ -304,16 +304,22 @@ func (f *follower) deliverLine(ctx context.Context, line []byte, endOffset int64
 	}
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, line); err == nil {
-		ev.Kind = logdir.KindRecord
 		ev.Record = append(json.RawMessage(nil), compact.Bytes()...)
+		if f.cfg.Selection == nil || f.cfg.Selection.Match(ev.Record) {
+			ev.Kind = logdir.KindRecord
+		} else {
+			// Complete but filtered out: publish progress without the line
+			// content so a filtered subscription can save a cursor even when
+			// many lines miss in a row.
+			ev.Kind = logdir.KindCheckpoint
+			ev.Record = nil
+		}
 	} else {
-		// Complete line, bad JSON: non-fatal error event, later lines survive.
+		// Complete line, bad JSON: non-fatal error event delivered even under
+		// a filter (it can never be a match and must not be silently skipped).
 		ev.Kind = logdir.KindBadJSON
 		ev.Line = append([]byte(nil), line...)
 		ev.Error = err.Error()
-	}
-	if ev.Kind == logdir.KindRecord && !f.cfg.Selection.Match(ev.Record) {
-		return nil
 	}
 	if err := f.sink.Emit(ctx, ev); err != nil {
 		if errors.Is(err, ErrSlowConsumer) {

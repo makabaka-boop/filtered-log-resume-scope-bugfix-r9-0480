@@ -99,7 +99,17 @@ func NewSSEClientSized(baseURL string, rcvBuf, parseBuf int) *SSEClient {
 
 // Connect opens GET /stream, optionally with a Last-Event-ID.
 func (c *SSEClient) Connect(ctx context.Context, lastEventID string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/stream", nil)
+	return c.ConnectQuery(ctx, "", lastEventID)
+}
+
+// ConnectQuery opens GET /stream with a raw query string (e.g.
+// "field=%2Flevel&value=%22error%22"), optionally with a Last-Event-ID.
+func (c *SSEClient) ConnectQuery(ctx context.Context, rawQuery, lastEventID string) error {
+	target := c.baseURL + "/stream"
+	if rawQuery != "" {
+		target += "?" + rawQuery
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return err
 	}

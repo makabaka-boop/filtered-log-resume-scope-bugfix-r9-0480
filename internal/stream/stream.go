@@ -92,6 +92,18 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		// A cursor is bound to the exact filter it was minted under. Reusing
+		// another condition's cursor would resume past records the new
+		// subscription is entitled to (e.g. a filtered cursor on an
+		// unfiltered stream silently drops all non-matching history).
+		if c.Scope != selected.Scope() {
+			writeJSONError(w, http.StatusConflict, errorPayload{
+				Error:  "cursor belongs to a different field filter; reconnect from the beginning or use the matching field/value",
+				Reason: follow.ResumeScopeMismatch,
+				Cursor: &c,
+			})
+			return
+		}
 		if re := follow.ResumeCheck(s.cfg.Dir, c); re != nil {
 			// Never silently move an invalid cursor to the current tail:
 			// 409 with an explicit, machine-readable reason.

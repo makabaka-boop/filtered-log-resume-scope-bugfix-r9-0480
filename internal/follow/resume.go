@@ -18,6 +18,11 @@ const (
 	ResumeSegmentGap       = "segment_gap"
 	ResumeNotLineBoundary  = "not_line_boundary"
 	ResumeOffsetOutOfRange = "offset_out_of_range"
+	// ResumeScopeMismatch means the cursor was minted for a different field
+	// filter: a filtered cursor on an unfiltered request (or vice versa), or
+	// the pointer/value changed. Resuming under different conditions would
+	// silently drop history that the new subscription should have seen.
+	ResumeScopeMismatch = "scope_mismatch"
 )
 
 // ResumeError is a pre-flight resumption failure with a stable machine reason.
