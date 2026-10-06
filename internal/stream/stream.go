@@ -92,7 +92,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		if re := follow.ResumeCheck(s.cfg.Dir, c); re != nil {
+		if re := follow.ResumeCheck(s.cfg.Dir, c, selected.Scope()); re != nil {
 			// Never silently move an invalid cursor to the current tail:
 			// 409 with an explicit, machine-readable reason.
 			writeJSONError(w, http.StatusConflict, errorPayload{

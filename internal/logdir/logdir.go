@@ -255,6 +255,11 @@ const (
 	// KindBadJSON is a complete newline-terminated line that failed to parse.
 	// It is non-fatal: following continues with the next line.
 	KindBadJSON = "bad_json"
+	// KindCheckpoint is a complete, syntactically valid line that did not match
+	// the subscription's field filter. It carries no original line content,
+	// only the byte position after the line's newline, so subscribers still
+	// get resumable progress through runs of non-matching records.
+	KindCheckpoint = "checkpoint"
 	// Fatal kinds: exactly one of these terminates the subscription.
 	KindTruncated       = "truncated"
 	KindSegmentGap      = "segment_gap"

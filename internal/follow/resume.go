@@ -18,6 +18,10 @@ const (
 	ResumeSegmentGap       = "segment_gap"
 	ResumeNotLineBoundary  = "not_line_boundary"
 	ResumeOffsetOutOfRange = "offset_out_of_range"
+	// ResumeScopeMismatch means the cursor was issued under a different field
+	// filter (or with none at all). A filtered cursor and an unfiltered
+	// subscription are not interchangeable.
+	ResumeScopeMismatch = "scope_mismatch"
 )
 
 // ResumeError is a pre-flight resumption failure with a stable machine reason.
@@ -32,6 +36,9 @@ func (e *ResumeError) Error() string { return e.Reason + ": " + e.Message }
 // ResumeCheck validates a resumption cursor against the directory before any
 // events are streamed:
 //
+//   - wantScope must equal the cursor's filter scope: filtered cursors resume
+//     only under their original field/value, and never on unfiltered requests
+//     (and vice versa);
 //   - run id must match the current producer marker;
 //   - the cursor segment must still exist;
 //   - numbers between it and the highest segment must be contiguous;
@@ -39,7 +46,14 @@ func (e *ResumeError) Error() string { return e.Reason + ": " + e.Message }
 //     actual bytes of that file — never reconstructed from character counts.
 //
 // Offset 0 is a valid boundary (start of the segment).
-func ResumeCheck(dir string, c logdir.Cursor) *ResumeError {
+func ResumeCheck(dir string, c logdir.Cursor, wantScope string) *ResumeError {
+	if c.Scope != wantScope {
+		return &ResumeError{
+			Reason:  ResumeScopeMismatch,
+			Message: "cursor was issued under a different field filter; resume with the original field and value",
+			Cursor:  c,
+		}
+	}
 	scan, err := logdir.ScanDir(dir)
 	if err != nil {
 		return &ResumeError{Reason: ResumeSegmentMissing, Message: fmt.Sprintf("scan log directory: %v", err), Cursor: c}

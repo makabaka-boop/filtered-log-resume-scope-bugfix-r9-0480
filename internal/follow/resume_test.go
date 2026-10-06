@@ -30,7 +30,7 @@ func TestResumeCheckBoundary(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := logdir.Cursor{RunID: "run-bound", Segment: 1, Offset: tc.off}
-			re := ResumeCheck(dir, c)
+			re := ResumeCheck(dir, c, "")
 			if tc.reason == "" {
 				if re != nil {
 					t.Fatalf("expected accept, got %v", re)
@@ -47,11 +47,11 @@ func TestResumeCheckBoundary(t *testing.T) {
 	}
 
 	// Run mismatch.
-	if re := ResumeCheck(dir, logdir.Cursor{RunID: "OTHER", Segment: 1, Offset: 0}); re == nil || re.Reason != ResumeRunMismatch {
+	if re := ResumeCheck(dir, logdir.Cursor{RunID: "OTHER", Segment: 1, Offset: 0}, ""); re == nil || re.Reason != ResumeRunMismatch {
 		t.Fatalf("run check = %v", re)
 	}
 	// Missing segment.
-	if re := ResumeCheck(dir, logdir.Cursor{RunID: "run-bound", Segment: 9, Offset: 0}); re == nil || re.Reason != ResumeSegmentMissing {
+	if re := ResumeCheck(dir, logdir.Cursor{RunID: "run-bound", Segment: 9, Offset: 0}, ""); re == nil || re.Reason != ResumeSegmentMissing {
 		t.Fatalf("missing check = %v", re)
 	}
 }
@@ -64,12 +64,40 @@ func TestResumeCheckGap(t *testing.T) {
 	mk3(t, dir)
 
 	c := logdir.Cursor{RunID: "run-gap", Segment: 1, Offset: 8}
-	if re := ResumeCheck(dir, c); re != nil {
+	if re := ResumeCheck(dir, c, ""); re != nil {
 		t.Fatalf("contiguous resume rejected: %v", re)
 	}
 	rm2(t, dir)
-	if re := ResumeCheck(dir, c); re == nil || re.Reason != ResumeSegmentGap {
+	if re := ResumeCheck(dir, c, ""); re == nil || re.Reason != ResumeSegmentGap {
 		t.Fatalf("gap check = %v, want segment_gap", re)
+	}
+}
+
+// TestResumeCheckScope: a filtered cursor is usable only under exactly the
+// predicate scope it was issued for; filtered<->unfiltered reuse is rejected
+// before any disk check.
+func TestResumeCheckScope(t *testing.T) {
+	dir := setupDir(t, "run-scope-f")
+	appendLine(t, dir, 1, `{"level":"error"}`+"\n")
+
+	filtered := func(off int64) logdir.Cursor {
+		return logdir.Cursor{RunID: "run-scope-f", Segment: 1, Offset: off, Scope: "scope-A"}
+	}
+
+	// Even offset 0 (no boundary read needed) is rejected on scope mismatch,
+	// proving the check precedes and short-circuits the disk validation.
+	if re := ResumeCheck(dir, filtered(0), "scope-B"); re == nil || re.Reason != ResumeScopeMismatch {
+		t.Fatalf("changed scope = %v, want scope_mismatch", re)
+	}
+	if re := ResumeCheck(dir, filtered(0), ""); re == nil || re.Reason != ResumeScopeMismatch {
+		t.Fatalf("filtered cursor on unfiltered = %v, want scope_mismatch", re)
+	}
+	plain := logdir.Cursor{RunID: "run-scope-f", Segment: 1, Offset: 0}
+	if re := ResumeCheck(dir, plain, "scope-A"); re == nil || re.Reason != ResumeScopeMismatch {
+		t.Fatalf("plain cursor on filtered = %v, want scope_mismatch", re)
+	}
+	if re := ResumeCheck(dir, filtered(0), "scope-A"); re != nil {
+		t.Fatalf("same scope must pass the rest of preflight: %v", re)
 	}
 }
 

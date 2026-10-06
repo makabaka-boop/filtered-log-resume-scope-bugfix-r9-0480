@@ -296,24 +296,31 @@ func (f *follower) deliverBytes(ctx context.Context, chunk []byte) *logdir.Fatal
 }
 
 func (f *follower) deliverLine(ctx context.Context, line []byte, endOffset int64) *logdir.FatalError {
+	scope := f.cfg.Selection.Scope()
 	ev := logdir.Event{
 		RunID:   f.runID,
-		Scope:   f.cfg.Selection.Scope(),
+		Scope:   scope,
 		Segment: f.seg,
 		Offset:  endOffset,
 	}
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, line); err == nil {
-		ev.Kind = logdir.KindRecord
-		ev.Record = append(json.RawMessage(nil), compact.Bytes()...)
+		// A complete valid line that the filter does not select is still a
+		// real line boundary: publish a content-free checkpoint so the client
+		// has resumable progress even across long runs of misses.
+		if f.cfg.Selection != nil && !f.cfg.Selection.Match(compact.Bytes()) {
+			ev.Kind = logdir.KindCheckpoint
+		} else {
+			ev.Kind = logdir.KindRecord
+			ev.Record = append(json.RawMessage(nil), compact.Bytes()...)
+		}
 	} else {
 		// Complete line, bad JSON: non-fatal error event, later lines survive.
+		// Bad JSON is never filtered out — a filter cannot prove it did not
+		// match a line that never parsed.
 		ev.Kind = logdir.KindBadJSON
 		ev.Line = append([]byte(nil), line...)
 		ev.Error = err.Error()
-	}
-	if ev.Kind == logdir.KindRecord && !f.cfg.Selection.Match(ev.Record) {
-		return nil
 	}
 	if err := f.sink.Emit(ctx, ev); err != nil {
 		if errors.Is(err, ErrSlowConsumer) {
